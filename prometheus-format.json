@@ -1,0 +1,58 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {},
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {},
+      "targets": [
+        { "expr": "xdp_pass_total", "legendFormat": "XDP Pass" },
+        { "expr": "xdp_drop_total", "legendFormat": "XDP Drop" }
+      ],
+      "title": "XDP Packet",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {},
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": {},
+      "targets": [
+        { "expr": "sum by(dst_ip,dst_port)(tcp_connect_total)", "legendFormat": "{{dst_ip}}:{{dst_port}}" }
+      ],
+      "title": "TCP Connect Events",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {},
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "id": 3,
+      "options": {},
+      "targets": [
+        { "expr": "sum by(dst_ip)(tcp_connect_total)", "legendFormat": "{{dst_ip}}" }
+      ],
+      "title": "TCP Connect by destIP",
+      "type": "barchart"
+    }
+  ],
+  "schemaVersion": 36,
+  "style": "dark",
+  "tags": ["eBPF","XDP","TCP"],
+  "templating": { "list": [] },
+  "time": { "from": "now-5m", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Custom eBPF Dashboard",
+  "version": 1
+}
