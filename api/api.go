@@ -4,75 +4,87 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"unsafe"
 
 	"ebpf/bpf"
 	"ebpf/utils"
+
+	"github.com/cilium/ebpf"
 )
 
-// L3/L4 Filtering: allow
+// --- L3/L4 Filtering: allow ---
 func AllowHandler(w http.ResponseWriter, r *http.Request) {
 	ipStr := r.URL.Query().Get("ip")
 	portStr := r.URL.Query().Get("port")
+
 	ip, err := utils.ParseIPv4(ipStr)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
 	p, _ := strconv.Atoi(portStr)
-	key := utils.IpPortKey{IP: ip, Port: uint16(p)}
-	val := uint8(1)
-	if err := bpf.AllowedMap.Put(&key, &val); err != nil {
+
+	key := bpf.IpPort{IP: ip, Port: uint16(p)}
+	val := uint64(1) // Counters가 u64라서;;;;
+
+	if err := bpf.LbMap.Update(unsafe.Pointer(&key), unsafe.Pointer(&val), ebpf.UpdateAny); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	fmt.Fprintf(w, "allowed %s:%d\n", ipStr, p)
 }
 
-// L3/L4 Filtering: deny
+// --- L3/L4 Filtering: deny ---
 func DenyHandler(w http.ResponseWriter, r *http.Request) {
 	ipStr := r.URL.Query().Get("ip")
 	portStr := r.URL.Query().Get("port")
+
 	ip, _ := utils.ParseIPv4(ipStr)
 	p, _ := strconv.Atoi(portStr)
-	key := utils.IpPortKey{IP: ip, Port: uint16(p)}
-	if err := bpf.AllowedMap.Delete(&key); err != nil {
+
+	key := bpf.IpPort{IP: ip, Port: uint16(p)}
+	if err := bpf.LbMap.Delete(unsafe.Pointer(&key)); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	fmt.Fprintf(w, "removed %s:%d\n", ipStr, p)
 }
 
-// L4 Load Balancing: add Rule (NIC redirect based Port)
+// --- L4 Load Balancing ---
 func AddLBHandler(w http.ResponseWriter, r *http.Request) {
 	portStr := r.URL.Query().Get("port")
 	nicStr := r.URL.Query().Get("nic")
+
 	p, _ := strconv.Atoi(portStr)
 	n, _ := strconv.Atoi(nicStr)
+
 	key := uint16(p)
 	val := uint32(n)
-	if err := bpf.LbMap.Put(&key, &val); err != nil {
+
+	if err := bpf.TcLbMap.Update(unsafe.Pointer(&key), unsafe.Pointer(&val), ebpf.UpdateAny); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	fmt.Fprintf(w, "redirect port %d -> NIC %d\n", p, n)
 }
 
-// L4 Load Balancing: delete Rule (NIC redirect based Port)
 func DelLBHandler(w http.ResponseWriter, r *http.Request) {
 	portStr := r.URL.Query().Get("port")
 	p, _ := strconv.Atoi(portStr)
 	key := uint16(p)
-	if err := bpf.LbMap.Delete(&key); err != nil {
+
+	if err := bpf.TcLbMap.Delete(unsafe.Pointer(&key)); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	fmt.Fprintf(w, "removed redirect for port %d\n", p)
 }
 
-// Round-Robin Load Balancing: add a backend
+// --- Round-Robin LB: add backend ---
 func AddBackendHandler(w http.ResponseWriter, r *http.Request) {
 	portStr := r.URL.Query().Get("port")
 	ipStr := r.URL.Query().Get("ip")
+
 	p, _ := strconv.Atoi(portStr)
 	ip, err := utils.ParseIPv4(ipStr)
 	if err != nil {
@@ -83,12 +95,13 @@ func AddBackendHandler(w http.ResponseWriter, r *http.Request) {
 	port := uint16(p)
 	backendIP := ip
 
-	var backends utils.BackendList
-	if err := bpf.LbBackendsMap.Lookup(&port, &backends); err != nil {
+	var backends bpf.TcBackendList
+	err = bpf.TcLbMap.Lookup(unsafe.Pointer(&port), unsafe.Pointer(&backends))
+	if err != nil {
 		backends.Count = 0
 	}
 
-	if backends.Count >= utils.MaxBackends {
+	if backends.Count >= bpf.MaxBackends {
 		http.Error(w, "backend list is full", 500)
 		return
 	}
@@ -96,7 +109,7 @@ func AddBackendHandler(w http.ResponseWriter, r *http.Request) {
 	backends.Addrs[backends.Count] = backendIP
 	backends.Count++
 
-	if err := bpf.LbBackendsMap.Update(&port, &backends, bpf.BPF_ANY); err != nil {
+	if err := bpf.TcLbMap.Update(unsafe.Pointer(&port), unsafe.Pointer(&backends), ebpf.UpdateAny); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -104,10 +117,11 @@ func AddBackendHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Added backend %s to port %d\n", ipStr, port)
 }
 
-// Round-Robin Load Balancing: delete a backend
+// --- Round-Robin LB: delete backend ---
 func DeleteBackendHandler(w http.ResponseWriter, r *http.Request) {
 	portStr := r.URL.Query().Get("port")
 	ipStr := r.URL.Query().Get("ip")
+
 	p, _ := strconv.Atoi(portStr)
 	ip, err := utils.ParseIPv4(ipStr)
 	if err != nil {
@@ -118,8 +132,8 @@ func DeleteBackendHandler(w http.ResponseWriter, r *http.Request) {
 	port := uint16(p)
 	backendIP := ip
 
-	var backends utils.BackendList
-	if err := bpf.LbBackendsMap.Lookup(&port, &backends); err != nil {
+	var backends bpf.TcBackendList
+	if err := bpf.TcLbMap.Lookup(unsafe.Pointer(&port), unsafe.Pointer(&backends)); err != nil {
 		http.Error(w, "port not found", 404)
 		return
 	}
@@ -139,7 +153,7 @@ func DeleteBackendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := bpf.LbBackendsMap.Update(&port, &backends, bpf.BPF_ANY); err != nil {
+	if err := bpf.TcLbMap.Update(unsafe.Pointer(&port), unsafe.Pointer(&backends), ebpf.UpdateAny); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}

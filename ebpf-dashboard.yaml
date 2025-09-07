@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ebpf-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  ebpf-dashboard.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "schemaVersion": 36,
+      "style": "dark",
+      "title": "Custom eBPF Dashboard",
+      "version": 1,
+      "panels": [
+        {
+          "datasource": "Prometheus",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "id": 1,
+          "targets": [
+            { "expr": "xdp_pass_total", "legendFormat": "XDP Pass" },
+            { "expr": "xdp_drop_total", "legendFormat": "XDP Drop" }
+          ],
+          "title": "XDP Packet",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "id": 2,
+          "targets": [
+            { "expr": "sum by(dst_ip,dst_port)(tcp_connect_total)", "legendFormat": "{{dst_ip}}:{{dst_port}}" }
+          ],
+          "title": "TCP Connect Events",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+          "id": 3,
+          "targets": [
+            { "expr": "sum by(dst_ip)(tcp_connect_total)", "legendFormat": "{{dst_ip}}" }
+          ],
+          "title": "TCP Connect by destIP",
+          "type": "barchart"
+        },
+        {
+          "datasource": "Prometheus",
+          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 16 },
+          "id": 4,
+          "type": "graph",
+          "title": "Node-to-Node Traffic Flow",
+          "targets": [
+            {
+              "expr": "tcp_connect_total",
+              "legendFormat": "{{src_ip}} -> {{dst_ip}}:{{dst_port}}"
+            }
+          ],
+          "options": {
+            "graphType": "network",
+            "displayMode": "link",
+            "tooltip": { "mode": "single" },
+            "nodeColor": "#1E90FF",
+            "linkColor": "#FF7F50",
+            "linkWidthField": "value"
+          }
+        }
+      ]
+    }

@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ebpf-agent
+  namespace: default
+  labels:
+    app: ebpf-agent
+spec:
+  selector:
+    matchLabels:
+      app: ebpf-agent
+  template:
+    metadata:
+      labels:
+        app: ebpf-agent
+    spec:
+      hostPID: true
+      hostNetwork: true
+      containers:
+      - name: ebpf-agent
+        image: downfa11/ebpf-visor:latest
+        securityContext:
+          privileged: true
+        env:
+          - name: NETWORK_INTERFACE
+            value: "eth0"
+        ports:
+          - containerPort: 8080
+            name: metrics
+        volumeMounts:
+          - name: btf
+            mountPath: /sys/kernel/btf
+            readOnly: true
+      nodeSelector:
+        kubernetes.io/os: linux
+      volumes:
+        - name: btf
+          hostPath:
+            path: /sys/kernel/btf
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ebpf-agent-metrics
+  namespace: default
+  labels:
+    app: ebpf-agent
+spec:
+  selector:
+    app: ebpf-agent
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ebpf-agent
+  namespace: default
+  labels:
+    app: ebpf-agent
+spec:
+  selector:
+    matchLabels:
+      app: ebpf-agent
+  endpoints:
+    - port: metrics
+      interval: 10s

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"ebpf/api"
 	"ebpf/bpf"
@@ -13,22 +14,18 @@ import (
 )
 
 func main() {
-	iface := os.Getenv("DEV")
+	iface := os.Getenv("NETWORK_INTERFACE")
 	if iface == "" {
 		iface = "eth0"
 	}
 
-	// BPF
-	bpf.LoadBPF("bpf/xdp_fw_lb.o")
+	bpf.LoadBPF()
 	bpf.AttachXDP(iface)
+	bpf.AttachTC(iface)
+
 	defer bpf.XdpLink.Close()
-	defer bpf.Coll.Close()
+	defer bpf.TcLink.Close()
 
-	// metrics
-	bpf.StartPerfReader()
-	bpf.StartXDPStats()
-
-	// HTTP handler
 	http.Handle("/metrics", promhttp.Handler())
 	http.HandleFunc("/allow", api.AllowHandler)
 	http.HandleFunc("/deny", api.DenyHandler)
@@ -36,9 +33,15 @@ func main() {
 	http.HandleFunc("/del", api.DelLBHandler)
 
 	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	log.Println("controller started at :8080")
-	http.ListenAndServe(":8080", nil)
+	go func() {
+		log.Println("controller started at :8080")
+		if err := http.ListenAndServe(":8080", nil); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Could not listen on port 8080: %v\n", err)
+		}
+	}()
+
 	<-stop
+	log.Println("Shutting down...")
 }

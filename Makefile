@@ -1,22 +1,30 @@
-BPF_SRC=bpf/xdp_fw_lb.c
-BPF_OBJ=bpf/xdp_fw_lb.o
-GO_SRC=main.go
-APP_IMAGE=custom-ebpf:latest
+BINARY := custom-ebpf
+
+BPF_SRCS := $(wildcard src/*.c)
+BPF_OBJS := $(patsubst src/%.c,bpf/%.o,$(BPF_SRCS))
+
+
+IMAGE := downfa11/ebpf-visor:latest
+
+.PHONY: all bpf go docker clean
 
 all: bpf go docker
 
-bpf:
-	@echo "==> Building eBPF program..."
-	clang -O2 -target bpf -c $(BPF_SRC) -o $(BPF_OBJ)
+bpf: $(BPF_OBJS)
+
+bpf/%.o: src/%.c
+	@mkdir -p bpf
+	@echo "Compiling $< to $@..."
+	clang -O2 -g -target bpf -c $< -o $@
 
 go:
-	@echo "==> Building Go controller..."
-	go build -o custom-ebpf $(GO_SRC)
+	@echo "Building Go controller..."
+	go build -o $(BINARY) main.go
 
-docker:
-	@echo "==> Building Docker image..."
-	docker build -t $(APP_IMAGE) .
+docker: $(BINARY) $(BPF_OBJS)
+	@echo "Building Docker image..."
+	docker build -t $(IMAGE) .
 
 clean:
-	rm -f custom-ebpf
-	rm -f $(BPF_OBJ)
+	@echo "Cleaning..."
+	rm -f $(BINARY) $(BPF_OBJS)
